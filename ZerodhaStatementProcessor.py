@@ -1,9 +1,12 @@
 import pandas as pd
 from ExtractHeader import extract_section_dataframe
 
+pd.options.display.float_format = '{:.2f}'.format
+
 HOLDING_ST = 'HP≤365'
 HOLDING_LT = 'HP>365'
 HOLDING_INTRADAY = 'HP=0'
+HOLDING_NON_EQUITY = 'Non-Equity'
 
 COL_HOLDING_PERIOD_GROUP = 'HoldPeriodGroup'
 
@@ -93,11 +96,20 @@ def exit_bucket(d: pd.Timestamp) -> str:
             return name
     return "Out of FY"
 
+"""
 def assign_exit_bucket(df : pd.DataFrame):
     df["Exit Date"] = pd.to_datetime(df["Exit Date"], errors="coerce")
     df["Exit Bucket"] = df["Exit Date"].apply(exit_bucket)
-    #return df
+    
     return
+"""
+
+def assign_exit_bucket(df : pd.DataFrame, date_col: str = "Exit Date", bucket_col: str = "Exit Bucket"):
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df[bucket_col] = df[date_col].apply(exit_bucket)
+    
+    return
+
 
 def consolidate_expenses(df: pd.DataFrame):    
     # Keep only the columns that exist in df
@@ -163,9 +175,30 @@ def ProcessIciciDirect(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 # --- paths ---
-input_file = r"E:\Dropbox\ITR calculation\FY 202425\Anuj\taxpnl.xlsx"
-iciciDirect_file = r"E:\Dropbox\ITR calculation\FY 202425\Anuj\icici-copy.xlsx"
-sheet = "Tradewise Exits from 2024-04-01"
+input_file = r"E:\Dropbox\ITR calculation\FY 202526\Anuj\taxpnl_zerodha.xlsx"
+iciciDirect_file = r"E:\Dropbox\ITR calculation\FY 202526\Anuj\icici.xlsx"
+dividend_file = r"E:\Dropbox\ITR calculation\FY 202526\Anuj\Calc.xlsx"
+dividend_sheet = "Dividends"
+
+sheet = "Tradewise Exits from 2025-04-01"
+
+df_dividends = pd.read_excel(dividend_file, sheet_name=dividend_sheet)
+df_dividends["Date"] = pd.to_datetime(df_dividends["Date"], dayfirst=True)
+
+
+assign_exit_bucket(df_dividends, date_col="Date", bucket_col="Date Bucket")
+
+df_dividends = df_dividends.groupby("Date Bucket")["Dividend"].sum().reset_index()
+print (df_dividends)
+
+df_NonEquity = extract_section_dataframe (input_file, sheet, header_columns, section="Non Equity")
+assign_exit_bucket(df_NonEquity)
+consolidate_expenses(df_NonEquity)
+calculate_net_profit(df_NonEquity)
+df_NonEquity[COL_HOLDING_PERIOD_GROUP] = HOLDING_NON_EQUITY
+print ('------- Non-Equity summary -------')
+print(df_NonEquity)
+
 
 df_Intraday = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Intraday")
 assign_exit_bucket(df_Intraday)
@@ -186,6 +219,12 @@ df_Eq_ST_icici = ProcessIciciDirect(df_Eq_ST_icici)
 #df_Eq_ST_icici = assign_exit_bucket(df_Eq_ST_icici)ch
 print(df_Eq_ST_icici)
 
+df_Eq_LT_icici = pd.read_excel(iciciDirect_file, sheet_name='LongTerm')
+df_Eq_LT_icici = ProcessIciciDirect(df_Eq_LT_icici)
+
+print(df_Eq_LT_icici)
+
+
 df_Eq_ST = pd.concat([df_Eq_ST, df_Eq_ST_icici], ignore_index=True)
 
 df_Eq_ST[COL_HOLDING_PERIOD_GROUP] = HOLDING_ST
@@ -195,16 +234,13 @@ calculate_net_profit(df_Eq_ST)
 print(df_Eq_ST)
 
 df_Eq_LT = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Long Term")
+df_Eq_LT = pd.concat([df_Eq_LT, df_Eq_LT_icici], ignore_index=True)
 
 df_Eq_LT[COL_HOLDING_PERIOD_GROUP] = HOLDING_LT
 assign_exit_bucket(df_Eq_LT)
 consolidate_expenses(df_Eq_LT)
 calculate_net_profit(df_Eq_LT)
 # print(df_Eq_LT)
-
-df_NonEquity = extract_section_dataframe (input_file, sheet, header_columns, section="Non Equity")
-assign_exit_bucket(df_NonEquity)
-# print(df_NonEquity)
 
 df_MF = extract_section_dataframe (input_file, sheet, header_columns + [COL_PERIOD_OF_HOLDING], section="Mutual Funds")
 df_MF[COL_HOLDING_PERIOD_GROUP] = df_MF.apply(classify_hp, axis=1)
@@ -220,10 +256,11 @@ df_Eq_ST = df_Eq_ST[interestingCols]
 df_Eq_LT = df_Eq_LT[interestingCols]
 df_MF = df_MF[interestingCols]
 df_Intraday = df_Intraday[interestingCols]
+df_NonEquity = df_NonEquity[interestingCols]
 
-df = pd.concat([df_Eq_ST, df_Eq_LT, df_MF, df_Intraday], ignore_index=True)[interestingCols]
+df = pd.concat([df_Eq_ST, df_Eq_LT, df_MF, df_Intraday, df_NonEquity], ignore_index=True)[interestingCols]
 # --- filter valid ---
-df = df[(df[COL_HOLDING_PERIOD_GROUP].isin([HOLDING_INTRADAY, HOLDING_ST, HOLDING_LT])) & (df[COL_EXIT_BUCKET] != "Unknown")]
+df = df[(df[COL_HOLDING_PERIOD_GROUP].isin([HOLDING_INTRADAY, HOLDING_ST, HOLDING_LT, HOLDING_NON_EQUITY])) & (df[COL_EXIT_BUCKET] != "Unknown")]
 
 print(df)
 
@@ -238,7 +275,7 @@ def aggregate(df: pd.DataFrame, col: str) -> pd.DataFrame:
     pivot = grouped.pivot(index=COL_HOLDING_PERIOD_GROUP, columns=COL_EXIT_BUCKET, values=col)
 
     # Reindex to include all buckets and holding periods, filling missing values with 0
-    pivot = pivot.reindex(columns=bucket_order, index=[HOLDING_INTRADAY, HOLDING_ST, HOLDING_LT]).fillna(0)
+    pivot = pivot.reindex(columns=bucket_order, index=[HOLDING_INTRADAY, HOLDING_ST, HOLDING_LT, HOLDING_NON_EQUITY]).fillna(0)
 
     # Add Total column summing profits across buckets
     pivot['Total'] = pivot[bucket_order].sum(axis=1)
@@ -268,6 +305,7 @@ print(pivot_expense)
 print ('------- Net Profit summary -------')
 pivot_net_profit = aggregate(df, COL_NET_PROFIT)
 print(pivot_net_profit)
+
 # --- save ---
 # pivot.to_excel(output_file, sheet_name="Summary_3x5", index=False)
 
