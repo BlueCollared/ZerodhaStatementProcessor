@@ -192,7 +192,7 @@ df_dividends["Date"] = pd.to_datetime(df_dividends["Date"], dayfirst=True)
 assign_exit_bucket(df_dividends, date_col="Date", bucket_col="Date Bucket")
 
 df_dividends = df_dividends.groupby("Date Bucket")["Dividend"].sum().reset_index()
-print (df_dividends)
+
 
 df_NonEquity = extract_section_dataframe (input_file, sheet, header_columns, section="Non Equity")
 assign_exit_bucket(df_NonEquity)
@@ -212,13 +212,13 @@ consolidate_expenses(df_Intraday)
 df_Intraday[COL_HOLDING_PERIOD_GROUP] = HOLDING_INTRADAY
 calculate_net_profit(df_Intraday)
 
-print(df_Intraday)
+# print(df_Intraday)
 
 df_Eq_ST_Zerodha = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Short Term")
 #consolidate_expenses(df_Eq_ST_Zerodha)
 df_Eq_ST_Zerodha[COL_EXPENSE] = 0
 
-print(df_Eq_ST_Zerodha)
+# print(df_Eq_ST_Zerodha)
 
 df_Eq_ST_icici = pd.read_excel(iciciDirect_file, sheet_name='ShortTerm')
 # print(df_Eq_ST_icici)
@@ -256,24 +256,28 @@ calculate_net_profit(df_Eq_LT)
 
 df_MutualFunds = extract_section_dataframe (input_file, "Mutual Funds", ["Symbol"], section="Debt - Purchases post 2023-04-01")
 debt_MFs = df_MutualFunds["Symbol"].unique().tolist();
+df_MFTxns = extract_section_dataframe (input_file, sheet, ["ISIN", "Symbol"], section="Mutual Funds")
+# Filter df_MFTxns where the Symbol matches any Symbol in df_MutualFunds, 
+# then extract unique ISIN values as a list
+lstDebtMFs_ISIN = df_MFTxns[df_MFTxns['Symbol'].isin(df_MutualFunds['Symbol'])]['ISIN'].unique().tolist()
+#for sym in debt_MFs:
 
-
-
-df_MF_All = extract_section_dataframe (input_file, sheet, header_columns + [COL_PERIOD_OF_HOLDING, "Symbol"], section="Mutual Funds")
+df_MF_All = extract_section_dataframe (input_file, sheet, header_columns + [COL_PERIOD_OF_HOLDING, "Symbol", "ISIN"], section="Mutual Funds")
 assign_exit_bucket(df_MF_All)
 df_MF_All[COL_EXPENSE] = 0.0
 calculate_net_profit(df_MF_All)
 
-df_MF_Equity = df_MF_All[~df_MF_All["Symbol"].isin(debt_MFs)].copy()
-df_MF_Equity = df_MF_Equity.drop(columns='Symbol')
+df_MF_Equity = df_MF_All[~df_MF_All["ISIN"].isin(lstDebtMFs_ISIN)].copy()
+# df_MF_Equity = df_MF_Equity.drop(columns='Symbol')
 df_MF_Equity[COL_HOLDING_PERIOD_GROUP] = df_MF_Equity.apply(classify_hp, axis=1)
 
-# print (df_MF_Equity);
+print (len(df_MF_Equity))
 
-df_MF_Debt = df_MF_All[df_MF_All["Symbol"].isin(debt_MFs)].copy()
+df_MF_Debt = df_MF_All[df_MF_All["ISIN"].isin(lstDebtMFs_ISIN)].copy()
 df_MF_Debt = df_MF_Debt.drop(columns='Symbol')
 df_MF_Debt[COL_HOLDING_PERIOD_GROUP] = HOLDING_NON_EQUITY ## because we treat debt MF same as non-equity for tax purposes
 
+print (len(df_MF_Debt))
 # print(df_MF_Debt)
 
 del df_MF_All
@@ -293,12 +297,12 @@ df_NonEquity = df_NonEquity[interestingCols]
 
 # print(df_MutualFunds)
 
-df_Eq_ST = None
-df_Eq_LT = None
-#df_MF_Equity = None
+# df_Eq_ST = None
+# df_Eq_LT = None
+# df_MF_Equity = None
 # df_MF_Debt = None
-df_Intraday = None
-df_NonEquity = None
+# df_Intraday = None
+# df_NonEquity = None
 
 
 df = pd.concat([df_Eq_ST, df_Eq_LT, df_MF_Equity, df_MF_Debt, df_Intraday, df_NonEquity], ignore_index=True)[interestingCols]
@@ -308,7 +312,7 @@ df = df[(df[COL_HOLDING_PERIOD_GROUP].isin([HOLDING_INTRADAY,
                                             # HOLDING_DEBT,
                                               HOLDING_ST, HOLDING_LT, HOLDING_NON_EQUITY])) & (df[COL_EXIT_BUCKET] != "Unknown")]
 
-#print(df)
+print(df)
 
 # print(df.to_string(max_cols=None))
 
@@ -359,3 +363,4 @@ print(pivot_net_profit)
 
 # print("✅ Done. Wrote:", output_file)
 
+print (df_dividends)
