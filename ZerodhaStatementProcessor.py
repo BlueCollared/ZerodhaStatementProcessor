@@ -7,6 +7,7 @@ HOLDING_ST = 'HP≤365'
 HOLDING_LT = 'HP>365'
 HOLDING_INTRADAY = 'HP=0'
 HOLDING_NON_EQUITY = 'Non-Equity'
+# HOLDING_DEBT = 'Debt'
 
 COL_HOLDING_PERIOD_GROUP = 'HoldPeriodGroup'
 
@@ -131,6 +132,7 @@ def calculate_net_profit(df: pd.DataFrame):
         df[COL_NET_PROFIT] = df[COL_PROFIT_BEFORE_EXPENSE] - df[COL_EXPENSE]
     return
 
+    # Qty	Sale Date	Sale Rate	Sale Value	Purchase Date	Purchase Rate	Purchase Value	Profit/Loss(-)
 def ProcessIciciDirect(df: pd.DataFrame) -> pd.DataFrame:
 
     # Qty	Sale Date	Sale Rate	Sale Value	Purchase Date	Purchase Rate	Purchase Value	Profit/Loss(-)
@@ -159,7 +161,8 @@ def ProcessIciciDirect(df: pd.DataFrame) -> pd.DataFrame:
 
         return sale_expense + purchase_expense       
 
-    df[COL_EXPENSE] = df.apply(calculate_expense, axis=1)
+    df[COL_EXPENSE] = df["Sale Expenses"] + df["Purchase Expenses"]
+#df.apply(calculate_expense, axis=1)
     df[COL_PURCHASE_VALUE] = df[COL_QTY] * df[COL_PURCHASE_RATE]
     df[COL_SALE_VALUE] = df[COL_QTY] * df[COL_SALE_RATE]
     df[COL_PROFIT_BEFORE_EXPENSE] = df[COL_SALE_VALUE] - df[COL_PURCHASE_VALUE]
@@ -193,76 +196,121 @@ print (df_dividends)
 
 df_NonEquity = extract_section_dataframe (input_file, sheet, header_columns, section="Non Equity")
 assign_exit_bucket(df_NonEquity)
-consolidate_expenses(df_NonEquity)
+#consolidate_expenses(df_NonEquity)
+df_NonEquity[COL_EXPENSE] = 0
 calculate_net_profit(df_NonEquity)
 df_NonEquity[COL_HOLDING_PERIOD_GROUP] = HOLDING_NON_EQUITY
-print ('------- Non-Equity summary -------')
-print(df_NonEquity)
+# print ('------- Non-Equity summary -------')
+# print(df_NonEquity)
 
 
 df_Intraday = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Intraday")
 assign_exit_bucket(df_Intraday)
 consolidate_expenses(df_Intraday)
-print(df_Intraday)
+
+# print(df_Intraday)
 df_Intraday[COL_HOLDING_PERIOD_GROUP] = HOLDING_INTRADAY
 calculate_net_profit(df_Intraday)
 
 print(df_Intraday)
 
-df_Eq_ST = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Short Term")
-consolidate_expenses(df_Eq_ST)
+df_Eq_ST_Zerodha = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Short Term")
+#consolidate_expenses(df_Eq_ST_Zerodha)
+df_Eq_ST_Zerodha[COL_EXPENSE] = 0
 
-print(df_Eq_ST)
+print(df_Eq_ST_Zerodha)
 
 df_Eq_ST_icici = pd.read_excel(iciciDirect_file, sheet_name='ShortTerm')
+# print(df_Eq_ST_icici)
 df_Eq_ST_icici = ProcessIciciDirect(df_Eq_ST_icici)
 #df_Eq_ST_icici = assign_exit_bucket(df_Eq_ST_icici)ch
-print(df_Eq_ST_icici)
+# print(df_Eq_ST_icici)
 
 df_Eq_LT_icici = pd.read_excel(iciciDirect_file, sheet_name='LongTerm')
 df_Eq_LT_icici = ProcessIciciDirect(df_Eq_LT_icici)
 
-print(df_Eq_LT_icici)
+# print(df_Eq_LT_icici)
 
 
-df_Eq_ST = pd.concat([df_Eq_ST, df_Eq_ST_icici], ignore_index=True)
+#df_Eq_ST_icici = None
+df_Eq_ST = pd.concat([df_Eq_ST_Zerodha, df_Eq_ST_icici], ignore_index=True)
 
 df_Eq_ST[COL_HOLDING_PERIOD_GROUP] = HOLDING_ST
 assign_exit_bucket(df_Eq_ST)
 # consolidate_expenses(df_Eq_ST)
 calculate_net_profit(df_Eq_ST)
-print(df_Eq_ST)
+# print(df_Eq_ST)
 
-df_Eq_LT = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Long Term")
-df_Eq_LT = pd.concat([df_Eq_LT, df_Eq_LT_icici], ignore_index=True)
+df_Eq_LT_Zerodha = extract_section_dataframe (input_file, sheet, header_columns + columns_expenses, section="Equity - Long Term")
+#consolidate_expenses(df_Eq_LT_Zerodha)
+df_Eq_LT_Zerodha[COL_EXPENSE] = 0
+
+#df_Eq_LT_icici = None
+df_Eq_LT = pd.concat([df_Eq_LT_Zerodha, df_Eq_LT_icici], ignore_index=True)
 
 df_Eq_LT[COL_HOLDING_PERIOD_GROUP] = HOLDING_LT
 assign_exit_bucket(df_Eq_LT)
-consolidate_expenses(df_Eq_LT)
+#consolidate_expenses(df_Eq_LT)
 calculate_net_profit(df_Eq_LT)
 # print(df_Eq_LT)
 
-df_MF = extract_section_dataframe (input_file, sheet, header_columns + [COL_PERIOD_OF_HOLDING], section="Mutual Funds")
-df_MF[COL_HOLDING_PERIOD_GROUP] = df_MF.apply(classify_hp, axis=1)
-assign_exit_bucket(df_MF)
-df_MF[COL_EXPENSE] = 0.0
-calculate_net_profit(df_MF)
-# print(df_MF)
+df_MutualFunds = extract_section_dataframe (input_file, "Mutual Funds", ["Symbol"], section="Debt - Purchases post 2023-04-01")
+debt_MFs = df_MutualFunds["Symbol"].unique().tolist();
+
+
+
+df_MF_All = extract_section_dataframe (input_file, sheet, header_columns + [COL_PERIOD_OF_HOLDING, "Symbol"], section="Mutual Funds")
+assign_exit_bucket(df_MF_All)
+df_MF_All[COL_EXPENSE] = 0.0
+calculate_net_profit(df_MF_All)
+
+df_MF_Equity = df_MF_All[~df_MF_All["Symbol"].isin(debt_MFs)].copy()
+df_MF_Equity = df_MF_Equity.drop(columns='Symbol')
+df_MF_Equity[COL_HOLDING_PERIOD_GROUP] = df_MF_Equity.apply(classify_hp, axis=1)
+
+# print (df_MF_Equity);
+
+df_MF_Debt = df_MF_All[df_MF_All["Symbol"].isin(debt_MFs)].copy()
+df_MF_Debt = df_MF_Debt.drop(columns='Symbol')
+df_MF_Debt[COL_HOLDING_PERIOD_GROUP] = HOLDING_NON_EQUITY ## because we treat debt MF same as non-equity for tax purposes
+
+# print(df_MF_Debt)
+
+del df_MF_All
+
+# print(df_MF_All)
 
 output_file = "taxpnl_summary_new.xlsx"
 
 interestingCols = [COL_HOLDING_PERIOD_GROUP, COL_EXIT_BUCKET, COL_BUY_VALUE, COL_SELL_VALUE, COL_PROFIT_BEFORE_EXPENSE, COL_EXPENSE, COL_NET_PROFIT]
 df_Eq_ST = df_Eq_ST[interestingCols]
 df_Eq_LT = df_Eq_LT[interestingCols]
-df_MF = df_MF[interestingCols]
+df_MF_Equity = df_MF_Equity[interestingCols]
+df_MF_Debt = df_MF_Debt[interestingCols]
 df_Intraday = df_Intraday[interestingCols]
 df_NonEquity = df_NonEquity[interestingCols]
 
-df = pd.concat([df_Eq_ST, df_Eq_LT, df_MF, df_Intraday, df_NonEquity], ignore_index=True)[interestingCols]
-# --- filter valid ---
-df = df[(df[COL_HOLDING_PERIOD_GROUP].isin([HOLDING_INTRADAY, HOLDING_ST, HOLDING_LT, HOLDING_NON_EQUITY])) & (df[COL_EXIT_BUCKET] != "Unknown")]
 
-print(df)
+# print(df_MutualFunds)
+
+df_Eq_ST = None
+df_Eq_LT = None
+#df_MF_Equity = None
+# df_MF_Debt = None
+df_Intraday = None
+df_NonEquity = None
+
+
+df = pd.concat([df_Eq_ST, df_Eq_LT, df_MF_Equity, df_MF_Debt, df_Intraday, df_NonEquity], ignore_index=True)[interestingCols]
+#print(len(df))
+# --- filter valid ---
+df = df[(df[COL_HOLDING_PERIOD_GROUP].isin([HOLDING_INTRADAY, 
+                                            # HOLDING_DEBT,
+                                              HOLDING_ST, HOLDING_LT, HOLDING_NON_EQUITY])) & (df[COL_EXIT_BUCKET] != "Unknown")]
+
+#print(df)
+
+# print(df.to_string(max_cols=None))
 
 def aggregate(df: pd.DataFrame, col: str) -> pd.DataFrame:
     

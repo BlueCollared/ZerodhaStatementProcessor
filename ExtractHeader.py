@@ -4,6 +4,66 @@ from openpyxl import load_workbook
 def extract_section_dataframe(workbook_name: str, sheet_name: str, header_columns: list[str], section: str) -> pd.DataFrame:
     """
     Extracts a DataFrame from an Excel sheet section identified by a super header.
+    Optimized to stream rows sequentially.
+    """
+    wb = load_workbook(filename=workbook_name, read_only=True, data_only=True)
+    ws = wb[sheet_name]
+    
+    data_rows = []
+    in_section = False
+    headers_found = False
+    header_indices = []
+    
+    # iter_rows(values_only=True) streams tuples of cell values sequentially, blazing fast.
+    for row_values in ws.iter_rows(values_only=True):
+        # Handle cases where a row might be completely empty/None
+        if not row_values:
+            continue
+            
+        # Strip None and check if row is effectively empty
+        stripped_row = [val for val in row_values if val is not None]
+        is_empty = len(stripped_row) == 0
+        
+        if not in_section:
+            # Look for super header in the first cell
+            if row_values[0] == section:
+                in_section = True
+            continue
+        
+        if in_section and not headers_found:
+            if is_empty:
+                continue
+                
+            # Get headers and find indices of desired columns
+            actual_headers = [str(val).strip() if val else '' for val in row_values]
+            header_indices = []
+            for col in header_columns:
+                try:
+                    idx = actual_headers.index(col)
+                    header_indices.append(idx)
+                except ValueError:
+                    wb.close()  # Clean up file handler
+                    raise ValueError(f"Column '{col}' not found in section '{section}' headers: {actual_headers}")
+            headers_found = True
+            continue
+        
+        if headers_found:
+            # End of section condition
+            if is_empty or (row_values[0] and isinstance(row_values[0], str) and any(sh in row_values[0] for sh in ["Equity", "Mutual Funds"])):
+                break  
+                
+            # Collect data safely for specified columns
+            data_row = [row_values[idx] if idx < len(row_values) else None for idx in header_indices]
+            data_rows.append(data_row)
+            
+    wb.close()  # Good practice to close read_only workbooks
+    
+    if not headers_found:
+        raise ValueError(f"Section '{section}' not found or headers missing.")
+    
+    return pd.DataFrame(data_rows, columns=header_columns).copy()  # Return a copy to ensure the workbook can be safely closed without affecting the DataFrame
+    """
+    Extracts a DataFrame from an Excel sheet section identified by a super header.
     
     :param workbook_name: Path to the Excel workbook.
     :param sheet_name: Name of the sheet to read from.
